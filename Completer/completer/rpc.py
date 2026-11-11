@@ -15,6 +15,7 @@ are what make it impossible to touch a download that is not ours:
 """
 
 import base64
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -53,8 +54,10 @@ class Rpc(object):
             with self._opener.open(request, timeout=self.timeout) as response:
                 answer = json.loads(response.read().decode("utf-8", "replace"))
         except urllib.error.HTTPError as error:
-            raise RpcError("NZBGet answered '%s' with HTTP %d" % (method, error.code))
-        except (urllib.error.URLError, OSError, ValueError) as error:
+            code = error.code
+            error.close()
+            raise RpcError("NZBGet answered '%s' with HTTP %d" % (method, code))
+        except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as error:
             raise RpcError("NZBGet could not be asked for '%s' (%s)" % (method, type(error).__name__))
         if not isinstance(answer, dict) or answer.get("error"):
             raise RpcError("NZBGet refused '%s'" % method)

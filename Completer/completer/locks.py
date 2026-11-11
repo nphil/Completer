@@ -166,11 +166,11 @@ class Unfinished(object):
 
     def ids(self):
         try:
-            with open(self.path) as handle:
-                lines = handle.read(10000).split()
+            with open(self.path, "rb") as handle:
+                lines = handle.read(10000).decode("ascii", "replace").split()
         except OSError:
             return set()
-        return set(int(line) for line in lines if line.isdigit())
+        return set(int(line) for line in lines if line.isdigit() and len(line) <= 12)
 
     def _write(self, ids):
         try:

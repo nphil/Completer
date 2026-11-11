@@ -82,7 +82,7 @@ def is_yes(value):
 def _number(value, default, low, high, kind=int):
     try:
         number = kind(float(str(value).strip()))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return max(low, min(high, number))
 
