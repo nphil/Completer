@@ -20,7 +20,9 @@ SINCE = "Completer_Since"    # when it was put on hold (unix time)
 CHECKS = "Completer_Checks"  # how many times it has been checked
 NEXT = "Completer_Next"      # when a waiting download is checked again (unix time)
 FILE = "Completer_File"      # NZBGet's copy of the nzb, needed to check again later
+SUM = "Completer_Sum"        # size and checksum of that nzb as it was scanned
 INFO = "Completer_Info"      # last result in words
+VERDICT = "Completer_Verdict"  # last result as one word, for the report
 
 PENDING = "pending"      # on hold, first check not done yet
 WAITING = "waiting"      # on hold, will be checked again by the scheduler
@@ -28,7 +30,11 @@ PASSED = "passed"
 FAILED = "failed"
 RELEASED = "released"    # resumed without a verdict (fail-open)
 FAILING = "failing"      # being removed as failed by the scheduler
+OBSERVED = "observed"    # dry run: checked, nothing was changed
 HELD = (PENDING, WAITING)
+
+# The only download parameters Completer ever writes.
+PARAMETERS = (TOKEN, STATE, SINCE, CHECKS, NEXT, FILE, SUM, INFO, VERDICT)
 
 NO_PAR_ALLOWANCE = 0.15  # NZBGet's own estimate when it recognises no par2 files
 
@@ -66,6 +72,11 @@ def _yes(value, default=False):
     if value in ("no", "false", "off", "0"):
         return False
     return default
+
+
+def is_yes(value):
+    """Whether a value that NZBGet gave us (yes, on, true, 1) means yes."""
+    return _yes(value)
 
 
 def _number(value, default, low, high, kind=int):

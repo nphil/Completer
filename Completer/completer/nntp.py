@@ -24,7 +24,10 @@ _LIMIT = re.compile(r"too many|connection limit|limit (reached|exceeded)|max(imu
                     r"|connections? exceeded|simultaneous", re.IGNORECASE)
 # Answers to STAT that say something is wrong with the connection, not with the article.
 _BROKEN = (400, 480, 481, 482, 483, 502, 503)
-_GROUP = re.compile(r"^[A-Za-z0-9.+_-]{1,200}$")
+_GROUP = re.compile(r"^[A-Za-z0-9.+_-]{1,200}\Z")
+# What may stand between the angle brackets of a request. nzbfile applies the same rule; it is repeated here
+# so that nothing that could end the line (or start another one) can ever reach the wire. \Z, not $.
+_MESSAGE_ID = re.compile(r"^[\x21-\x3b\x3d\x3f-\x7e]{1,248}\Z")
 
 
 class NNTPError(Exception):
@@ -204,10 +207,12 @@ class Connection(object):
     def stat(self, msgids, timeout, depth=PIPELINE):
         """Ask about each message-id. Returns {msgid: True or False}; unclear answers are left out.
 
+        A message-id that cannot be written as one line is not sent and stays unanswered.
         When the connection fails midway, the NNTPError carries the answers
         received so far in ``partial``.
         """
         answers = {}
+        msgids = [msgid for msgid in msgids if _MESSAGE_ID.match(msgid)]
         self._sock.settimeout(timeout)
         try:
             for start in range(0, len(msgids), max(1, depth)):

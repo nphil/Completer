@@ -20,8 +20,9 @@ MAX_BYTES = 256 * 1024 * 1024  # larger than any real nzb; protects memory
 
 # A message-id that is safe to put into an NNTP command: printable ASCII
 # without spaces and without angle brackets, so it can never smuggle a line break.
-_MESSAGE_ID = re.compile(r"^[\x21-\x3b\x3d\x3f-\x7e]{1,248}$")
-_GROUP = re.compile(r"^[A-Za-z0-9.+_-]{1,200}$")
+# \Z, not $: "$" would also accept one trailing newline.
+_MESSAGE_ID = re.compile(r"^[\x21-\x3b\x3d\x3f-\x7e]{1,248}\Z")
+_GROUP = re.compile(r"^[A-Za-z0-9.+_-]{1,200}\Z")
 _GOLDEN = 0.6180339887498949
 
 
@@ -78,14 +79,18 @@ def _read(path):
     with open(path, "rb") as handle:
         head = handle.read(2)
     if head == b"\x1f\x8b":
-        with gzip.open(path, "rb") as handle:
-            raw = handle.read(MAX_BYTES + 1)
+        try:
+            with gzip.open(path, "rb") as handle:
+                raw = handle.read(MAX_BYTES + 1)
+        except (EOFError, zlib.error, gzip.BadGzipFile):
+            raise NzbError("the nzb file is a damaged gzip file")
     else:
         with open(path, "rb") as handle:
             raw = handle.read(MAX_BYTES + 1)
     if len(raw) > MAX_BYTES:
         raise NzbError("the nzb file is too large")
-    if b"<!ENTITY" in raw[:1024 * 1024]:
+    # Wherever it stands, and in whatever encoding (UTF-16 has a zero byte between the letters).
+    if b"<!ENTITY" in (raw.replace(b"\x00", b"") if b"\x00" in raw[:64] else raw):
         raise NzbError("the nzb file declares XML entities")
     return raw
 
@@ -116,7 +121,7 @@ def parse(path):
                 _add_file(nzb, current, seen)
                 current = None
                 element.clear()
-    except ElementTree.ParseError:
+    except (ElementTree.ParseError, ValueError, LookupError):  # the last two: an encoding that cannot be read
         raise NzbError("the nzb file is not valid XML")
     return nzb
 
@@ -136,6 +141,9 @@ def _add_file(nzb, entry, seen):
     total_bytes = 0
     first_bytes = 0
     for number, size, text in entry["segments"]:
+        number = _integer(number)
+        if number > 0:
+            numbers.add(number)  # listed by the nzb, even when we cannot or need not ask about it: no gap
         msgid = (text or "").strip()
         if msgid.startswith("<") and msgid.endswith(">"):
             msgid = msgid[1:-1]
@@ -143,9 +151,6 @@ def _add_file(nzb, entry, seen):
             nzb.skipped += 1
             continue
         seen.add(msgid)
-        number = _integer(number)
-        if number > 0:
-            numbers.add(number)
         size = max(0, _integer(size))
         total_bytes += size
         if not first_bytes:

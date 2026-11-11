@@ -5,11 +5,13 @@ are what make it impossible to touch a download that is not ours:
 
 * a change names exactly one download, by its numeric id; a list that is
   empty, or longer than one, is never sent;
-* immediately before the change the queue is read again, and the download
-  with that id must still carry the random token Completer gave it and still
-  have the same name; otherwise nothing is sent;
+* immediately before a change (or a short series of changes to the same
+  download) the queue is read again, and the download with that id must be a
+  plain nzb that still carries the random token Completer gave it and still
+  has the same name; otherwise nothing is sent;
 * only a short list of commands exists here. There is no command for
-  deleting files of a download, and none that acts on the whole queue.
+  deleting files of a download, and none that acts on the whole queue;
+* the only download parameters that can be written are Completer's own.
 """
 
 import base64
@@ -17,7 +19,7 @@ import json
 import urllib.error
 import urllib.request
 
-from .settings import TOKEN
+from .settings import PARAMETERS, TOKEN
 
 # The complete list of things Completer can ask NZBGet to do to a download.
 QUEUE_EDITS = ("GroupResume", "GroupPauseExtraPars", "GroupSetParameter", "GroupDelete")
@@ -112,32 +114,57 @@ class QueueGuard(object):
         if len(matches) != 1:
             raise Refused("download %d is not in the %s" % (nzb_id, where))
         item = matches[0]
+        if item.get("Kind") != "NZB":
+            raise Refused("download %d is not an nzb" % nzb_id)
+        if history and item.get("ID", nzb_id) != nzb_id:
+            raise Refused("history entry %d does not belong to download %d" % (item.get("ID", 0), nzb_id))
         if params_of(item).get(TOKEN) != target.token:
             raise Refused("download %d in the %s is not the one Completer put on hold" % (nzb_id, where))
         if target.name is not None and not same_name(item.get("NZBName") or item.get("Name") or "", target.name):
             raise Refused("download %d in the %s has a different name now" % (nzb_id, where))
-        if not history and item.get("Kind", "NZB") != "NZB":
-            raise Refused("download %d is not an nzb" % nzb_id)
         return item
 
-    def _send(self, target, command, text, allowed, history):
-        if command not in allowed:
-            raise Refused("Completer does not use the command %s" % command)
+    def edit_many(self, target, commands, history=False):
+        """Send several allowed commands for the one download, after verifying it once.
+
+        ``commands`` is a list of (command, text). Returns what NZBGet answered to each.
+        """
+        allowed = HISTORY_EDITS if history else QUEUE_EDITS
+        for command, _text in commands:
+            if command not in allowed:
+                raise Refused("Completer does not use the command %s" % command)
+        if not commands:
+            return []
         self.verify(target, history)
-        return bool(self.rpc.call("editqueue", command, str(text), [target.nzb_id]))
+        return [bool(self.rpc.call("editqueue", command, str(text), [target.nzb_id])) for command, text in commands]
 
     def edit(self, target, command, text=""):
         """Change the one verified download in the queue. Returns what NZBGet answered."""
-        return self._send(target, command, text, QUEUE_EDITS, False)
+        return self.edit_many(target, [(command, text)])[0]
 
     def edit_history(self, target, command, text=""):
         """Change the one verified download in the history."""
-        return self._send(target, command, text, HISTORY_EDITS, True)
+        return self.edit_many(target, [(command, text)], True)[0]
 
-    def set_parameter(self, target, name, value):
-        return self.edit(target, "GroupSetParameter", "%s=%s" % (name, value))
+    def resume(self, target, pause_extra_pars=True):
+        """Let a held download start: resume all its files, then pause its extra repair files again.
 
-    def lane_busy(self):
-        """Whether NZBGet still has queue scripts waiting or running."""
-        status = self.rpc.call("status")
-        return int((status or {}).get("QueueScriptCount", 0)) > 0
+        That is what NZBGet itself does with a new download (unless ParCheck is
+        'force'), so the download ends up exactly as if it had never been held.
+        Returns whether NZBGet confirmed the resume.
+        """
+        commands = [("GroupResume", "")]
+        if pause_extra_pars:
+            commands.append(("GroupPauseExtraPars", ""))
+        return self.edit_many(target, commands)[0]
+
+    def set_parameters(self, target, values, history=False):
+        """Write Completer's own parameters on the verified download; nothing else can be written."""
+        command = "HistorySetParameter" if history else "GroupSetParameter"
+        commands = []
+        for name, value in (values.items() if hasattr(values, "items") else values):
+            if name not in PARAMETERS:
+                raise Refused("%s is not a parameter of Completer" % name)
+            text = "".join(ch for ch in str(value) if ch.isprintable())
+            commands.append((command, "%s=%s" % (name, text)))
+        return self.edit_many(target, commands, history)

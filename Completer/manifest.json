@@ -1,0 +1,153 @@
+{
+	"main": "main.py",
+	"name": "Completer",
+	"displayName": "Completer",
+	"kind": "SCAN/QUEUE/SCHEDULER",
+	"version": "1.0.0",
+	"nzbgetMinVersion": "26.0",
+	"author": "nphil",
+	"homepage": "https://github.com/nphil/Completer",
+	"license": "MIT",
+	"about": "Checks with the news servers, before anything is downloaded, whether a new download can be completed, and fails the ones that cannot so that Sonarr, Radarr and friends pick another release.",
+	"queueEvents": "NZB_ADDED",
+	"taskTime": "*;*:00;*:05;*:10;*:15;*:20;*:25;*:30;*:35;*:40;*:45;*:50;*:55",
+	"requirements": [
+		"Python 3.9 or newer.",
+		"Completer must be in NZBGet's Extensions list (global), so that it runs for every new download and its scheduled check can run."
+	],
+	"description": [
+		"Completer asks your news servers whether the articles of a new download exist (a STAT question; nothing is downloaded).",
+		"A download that cannot be repaired is failed at once, the way NZBGet itself fails it, so Sonarr and Radarr blocklist the release and search again. A download that can be completed is released within seconds.",
+		"Only the one new download is ever held, and only until it has been checked. Any problem, on the servers or inside Completer, lets the download go.",
+		"Start in DryRun: nothing is held or changed, and the Report button shows how Completer's verdicts compare with what NZBGet really did."
+	],
+	"options": [
+		{
+			"name": "Mode",
+			"displayName": "Mode",
+			"value": "DryRun",
+			"description": [
+				"What Completer does with its verdict.",
+				"",
+				"DryRun: checks every new download and writes the verdict into the log and into the download's parameters. Nothing is held, paused or failed.",
+				"Enforce: new downloads are held while they are checked, released when they pass and failed when they cannot be completed.",
+				"Off: checks nothing and lets go of anything it still holds."
+			],
+			"select": ["DryRun", "Enforce", "Off"]
+		},
+		{
+			"name": "Categories",
+			"displayName": "Categories",
+			"value": "",
+			"description": [
+				"Only downloads in these categories are checked (comma separated).",
+				"Leave empty to check every category."
+			],
+			"select": []
+		},
+		{
+			"name": "FreshHours",
+			"displayName": "FreshHours",
+			"value": 2,
+			"description": [
+				"How long after it was posted a download counts as fresh (hours, 0 to 72).",
+				"Articles of a very new post may not have reached every server yet, so a fresh download that looks incomplete is held and checked again (after 10, 20, 40 and 60 minutes) instead of being failed at once.",
+				"The check after the fresh time is over is final.",
+				"Default = 2."
+			],
+			"select": []
+		},
+		{
+			"name": "Connections",
+			"displayName": "Connections",
+			"value": 2,
+			"description": [
+				"How many connections Completer opens to one news server while it checks (1 to 8).",
+				"It never uses more than the connections you gave that server in NZBGet. Servers that already use all their connections for downloading may refuse extra ones; use the TestServers button to find out.",
+				"Default = 2."
+			],
+			"select": []
+		},
+		{
+			"name": "MaxArticles",
+			"displayName": "MaxArticles",
+			"value": 1200,
+			"description": [
+				"The most articles Completer asks about for one download (100 to 20000).",
+				"It starts with a small sample and stops as soon as the answer is certain, so most downloads need far fewer. Posts with 200 articles or fewer are checked completely.",
+				"Default = 1200."
+			],
+			"select": []
+		},
+		{
+			"name": "TimeLimit",
+			"displayName": "TimeLimit",
+			"value": 45,
+			"description": [
+				"The most seconds one check may take (10 to 300).",
+				"When time runs out without a certain answer, the download is let through.",
+				"Default = 45."
+			],
+			"select": []
+		},
+		{
+			"name": "MaxFillPercent",
+			"displayName": "MaxFillPercent",
+			"value": 100,
+			"description": [
+				"Fail a download when more than this share of it (percent) exists only on fill servers, the servers in a level above the first. Block accounts cost money per download.",
+				"100 switches this off.",
+				"Default = 100."
+			],
+			"select": []
+		},
+		{
+			"name": "IgnoreServers",
+			"displayName": "IgnoreServers",
+			"value": "",
+			"description": [
+				"Numbers of NZBGet news servers that Completer never asks, for example 3, 7-11.",
+				"Leave empty to use every active server."
+			],
+			"select": []
+		},
+		{
+			"name": "Verbose",
+			"displayName": "Verbose",
+			"value": "no",
+			"description": [
+				"Write the details of every check into NZBGet's log: how many questions each server answered and how long it took.",
+				"Default = no."
+			],
+			"select": ["no", "yes"]
+		}
+	],
+	"commands": [
+		{
+			"name": "TestServers",
+			"displayName": "TestServers",
+			"action": "Test",
+			"description": [
+				"Log in to every news server with as many connections as a check uses, and say how it went.",
+				"Press it while NZBGet is downloading to find out whether the servers have connections to spare."
+			]
+		},
+		{
+			"name": "Report",
+			"displayName": "Report",
+			"action": "Show",
+			"description": [
+				"Compare what Completer said about downloads in NZBGet's history with what NZBGet finally did: right calls, false alarms, misses and the amount of data saved."
+			]
+		},
+		{
+			"name": "ReleaseAll",
+			"displayName": "ReleaseAll",
+			"action": "Release",
+			"description": [
+				"Let every download that Completer holds start now.",
+				"Press this before you remove Completer from NZBGet's Extensions list or uninstall it."
+			]
+		}
+	]
+}

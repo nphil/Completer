@@ -24,7 +24,7 @@ from .stats import Tally, capacity, judge
 
 DATA_STAGES = (120, 400, 1200)  # content articles asked about after each round, in total
 PAR_STAGES = (40, 120, 300)     # repair articles, asked about only once content turns out to be missing
-SMALL = 200                     # a download with fewer articles is checked completely
+SMALL = 200                     # a download with this many articles or fewer is checked completely
 CONFIRM_PAUSE = 1.5             # seconds before the articles that looked missing are asked about again
 CONFIRM_LIMIT = 400
 MIN_ROUND_SECONDS = 4.0
@@ -86,7 +86,7 @@ class Outcome(object):
     """The result of one check."""
 
     def __init__(self, verdict, reason=""):
-        self.verdict = verdict    # pass | fail | suspect | error
+        self.verdict = verdict    # pass | fail | suspect | gone | error
         self.reason = reason      # why, for 'error'
         self.cause = "missing"    # for 'fail': 'missing' or 'fill'
         self.checked = 0
@@ -103,11 +103,15 @@ class Outcome(object):
         self.servers = []         # one line per server about the work done, for the detailed log
         self.seconds = 0.0
         self.fresh = False        # set by the caller: the post is too recent for a final verdict
+        self.found = 0            # articles of the sample that exist on at least one server
 
     def describe(self):
         sample = "%d of %d articles checked" % (self.checked, self.population)
         if self.verdict == "error":
             return self.reason
+        if self.verdict == "gone":
+            return "none of the %d articles checked exists on any server, which could also be a fault at the " \
+                   "news servers, so it is left to NZBGet" % self.checked
         if self.verdict == "fail" and self.cause == "fill":
             return "%.0f%% of it is only on fill servers, more than the %.0f%% allowed (%s)" % (
                 self.fill * 100, self.fill_limit * 100, sample)
@@ -306,7 +310,14 @@ class Checker(object):
                 break
             stage += 1
 
+        found = sum(1 for probe in data_probes + par_probes if probe.found is not None)
+        if verdict == "fail" and found == 0:
+            # Proof of life: when not one article was found anywhere, the servers' "not here" cannot be told
+            # apart from a provider that answers nonsense. NZBGet fails a post that is completely gone by itself
+            # within seconds, so nothing is lost by leaving this one to it.
+            verdict = "gone"
         outcome = Outcome(verdict)
+        outcome.found = found
         outcome.limit = capacity(allowed, par.estimate())
         outcome.fill_limit = settings.max_fill
         if verdict == "pass" and settings.max_fill < 1.0 and data.fill_share()[0] > settings.max_fill:

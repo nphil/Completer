@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run the unit tests
+        run: python -m unittest discover -s tests -v
+
+  no-private-details:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Look for private addresses and paths in tracked files
+        run: |
+          # private IPv4 ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x) and machine-specific folders
+          pattern='(^|[^0-9.])(192\.168\.|10\.[0-9]+\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+)|/mnt/|/data/home'
+          if git grep -nIE "$pattern" -- . ':!.github/workflows/tests.yml'; then
+            echo "::error::Private-looking addresses or paths found (listed above). Use neutral examples."
+            exit 1
+          fi
