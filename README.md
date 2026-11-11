@@ -188,10 +188,18 @@ Exit code: `0` when every nzb produced a verdict (an `ERROR` verdict because no 
 
 ## Tests, project layout, licence
 
-Run the tests (standard library only, no installation needed):
+Run the tests (standard library only, no installation needed; a few minutes):
 
 ```
 python -m unittest discover -s tests -v
+```
+
+They use a fake news server (`tests/fakenntp.py`) and a fake NZBGet (`tests/nzbgetsim.py`), so they never touch a real download or a real provider. The tests for the headline rule are in [`tests/test_guards.py`](tests/test_guards.py).
+
+One more set is optional: it runs Completer inside a real NZBGet 26 (throw-away folders, a free local port, the fake news server as the only server) and checks, through a recording proxy on the control port, that every change names exactly one download. It is skipped unless it is pointed at an NZBGet program:
+
+```
+COMPLETER_NZBGET=/path/to/nzbget python -m unittest tests.test_real_nzbget
 ```
 
 Layout:
@@ -213,7 +221,9 @@ Completer/                  the folder that goes into NZBGet's scripts folder
     commands.py             TestServers, Report, ReleaseAll
     log.py                  log output, secrets removed
 tools/completer_cli.py      offline checker
-tests/                      unit tests with a fake news server and a fake NZBGet
+tests/                      tests, fake news server (fakenntp.py), fake NZBGet (nzbgetsim.py)
+  test_guards.py            the rule "only the download that was checked is ever touched"
+  test_real_nzbget.py       optional, against a real NZBGet (COMPLETER_NZBGET)
 .github/workflows/tests.yml continuous tests
 ```
 

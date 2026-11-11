@@ -38,5 +38,6 @@ All notable changes to this project are written here. The format follows
   system locks that cannot go stale; passwords are never written to the log.
 - `tools/completer_cli.py`, an offline checker that runs the same check on nzb files using the servers of an
   `nzbget.conf`, without NZBGet.
-- Unit tests, run by GitHub Actions on Python 3.9 to 3.14, and a check that no private addresses or paths are
-  committed.
+- Tests, run by GitHub Actions on Python 3.9 to 3.14: unit tests, end-to-end flow tests against a fake NZBGet and a
+  fake news server, tests for the rule that only the checked download is touched, and an optional set that runs
+  Completer inside a real NZBGet 26. A check that no private addresses or paths are committed.

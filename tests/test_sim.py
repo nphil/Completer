@@ -3,14 +3,17 @@
 import base64
 import json
 import os
+import socket
 import sys
 import time
 import unittest
 import urllib.error
 import urllib.request
+import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import fakenntp  # noqa: E402
 import nzbgetsim as S  # noqa: E402
 import nzbtools  # noqa: E402
 
@@ -476,6 +479,120 @@ class WorldTests(S.SimTestCase):
         self.assertEqual(sim.news[1], second)
         self.assertEqual(sim.add_server(second, number=7), 7)
         self.assertEqual(len(sim.news), 2)
+
+
+def yenc_decode(lines):
+    """The bytes of yEnc data lines (what a downloader does with an article), for checking ``yenc_encode``."""
+    out = bytearray()
+    escaped = False
+    for line in lines:
+        for byte in bytearray(line):
+            if escaped:
+                byte = (byte - 64) & 255
+                escaped = False
+            elif byte == 61:
+                escaped = True
+                continue
+            out.append((byte - 42) & 255)
+    return bytes(out)
+
+
+class ArticleTests(unittest.TestCase):
+    """``Post.articles`` and ``FakeNews.bodies``: the real NZBGet test downloads what they make up."""
+
+    def test_yenc_round_trips_every_byte_and_never_splits_an_escape(self):
+        data = bytes(bytearray(range(256))) * 3
+        lines = nzbtools.yenc_encode(data, width=20)
+        self.assertEqual(yenc_decode(lines), data)
+        self.assertTrue(all(len(line) <= 20 for line in lines))
+        for line in lines:
+            self.assertFalse(any(byte in line for byte in (b"\0", b"\r", b"\n")))
+        self.assertEqual(b"".join(yenc_decode([line]) for line in lines), data)  # no escape pair spans two lines
+
+    def test_every_segment_is_an_article_with_its_checksums(self):
+        post = nzbtools.make_post("art", data_files=1, segments=3, par_files=1, par_segments=2)
+        articles = post.articles(part_size=50)
+        self.assertEqual(set(articles), set(post.all_ids))
+        whole = b""
+        for number, _size, msgid in post.files[0]["segments"]:
+            raw = articles[msgid]
+            self.assertTrue(raw.endswith(b"\r\n"))
+            lines = raw.split(b"\r\n")[:-1]
+            self.assertEqual(lines[0], b"=ybegin part=%d total=3 line=128 size=150 name=data.part01.rar" % number)
+            begin = (number - 1) * 50 + 1
+            self.assertEqual(lines[1], b"=ypart begin=%d end=%d" % (begin, begin + 49))
+            data = yenc_decode(lines[2:-1])
+            self.assertEqual(data, nzbtools.filler(msgid, 50))
+            self.assertIn(b"size=50 part=%d pcrc32=%08x" % (number, zlib.crc32(data) & 0xFFFFFFFF), lines[-1])
+            whole += data
+            self.assertEqual(b"crc32=" in lines[-1].replace(b"pcrc32=", b""), number == 3)
+        self.assertTrue(articles[post.files[0]["segments"][2][2]].rstrip().endswith(b"crc32=%08x" % (zlib.crc32(whole) & 0xFFFFFFFF)))
+        par = articles[post.files[1]["segments"][0][2]].split(b"\r\n")[0]
+        self.assertEqual(par, b"=ybegin part=1 total=2 line=128 size=100 name=data.par2")
+
+
+class BodyTests(S.SimTestCase):
+    """``BODY`` on the fake news server."""
+
+    def connect(self, news, login=True):
+        link = socket.create_connection((news.host, news.port), timeout=10)
+        self.addCleanup(link.close)
+        reader = link.makefile("rb")
+        self.addCleanup(reader.close)
+        self.assertTrue(reader.readline().startswith(b"200"))
+        if login:
+            for line in (b"AUTHINFO USER %s" % fakenntp.USERNAME.encode(), b"AUTHINFO PASS %s" % fakenntp.PASSWORD.encode()):
+                link.sendall(line + b"\r\n")
+                reader.readline()
+        return link, reader
+
+    def body(self, link, reader, argument):
+        """Ask for an article; returns the answer line and, for a 222, the data lines as sent (before the closing dot)."""
+        link.sendall(b"BODY " + argument + b"\r\n")
+        first = reader.readline().rstrip(b"\r\n")
+        lines = []
+        if first.startswith(b"222"):
+            while True:
+                line = reader.readline().rstrip(b"\r\n")
+                if line == b".":
+                    break
+                lines.append(line)
+        return first, lines
+
+    def test_a_known_article_is_sent_dot_stuffed(self):
+        news = self.make_news(have=["a@x", "b@x"])
+        news.bodies = {"a@x": b"first\r\n.dotted\r\n..two\r\nlast\r\n", "b@x": b"=ybegin\r\n"}
+        link, reader = self.connect(news)
+        answer, lines = self.body(link, reader, b"<a@x>")
+        self.assertEqual(answer, b"222 0 <a@x>")
+        self.assertEqual(lines, [b"first", b"..dotted", b"...two", b"last"])
+        answer, lines = self.body(link, reader, b"<b@x>")
+        self.assertEqual((answer, lines), (b"222 0 <b@x>", [b"=ybegin"]))
+        self.assertEqual([c for c in news.commands if c.startswith("BODY")], ["BODY <a@x>", "BODY <b@x>"])
+
+    def test_an_article_needs_both_a_body_and_to_be_in_have(self):
+        news = self.make_news(have=["has@x", "headless@x"])
+        news.bodies = {"has@x": b"x\r\n", "bodiless@x": b"y\r\n"}
+        link, reader = self.connect(news)
+        self.assertEqual(self.body(link, reader, b"<headless@x>")[0][:3], b"430")   # in have, no body
+        self.assertEqual(self.body(link, reader, b"<bodiless@x>")[0][:3], b"430")   # a body, not in have
+        self.assertEqual(self.body(link, reader, b"<unknown@x>")[0][:3], b"430")
+        news.have.discard("has@x")
+        self.assertEqual(self.body(link, reader, b"<has@x>")[0][:3], b"430")        # gone for BODY as for STAT
+        news.have.add("has@x")
+        self.assertEqual(self.body(link, reader, b"<has@x>")[0][:3], b"222")
+        news.deny_all = True
+        self.assertEqual(self.body(link, reader, b"<has@x>")[0][:3], b"430")
+
+    def test_login_and_syntax_rules_apply(self):
+        news = self.make_news(have=["a@x"])
+        news.bodies = {"a@x": b"x\r\n"}
+        link, reader = self.connect(news, login=False)
+        self.assertEqual(self.body(link, reader, b"<a@x>")[0][:3], b"480")
+        link, reader = self.connect(news)
+        self.assertEqual(self.body(link, reader, b"a@x")[0][:3], b"501")
+        self.assertEqual(self.body(link, reader, b"")[0][:3], b"501")
+        self.assertEqual(self.body(link, reader, b"<a@x>")[0][:3], b"222")
 
 
 if __name__ == "__main__":

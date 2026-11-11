@@ -70,6 +70,14 @@ Counters (reset by :meth:`reset`)
     commands            every received line except ``STAT`` (``AUTHINFO PASS`` included, it is made up)
     passwords_seen      the passwords received
     groups_joined       the groups selected with ``GROUP``
+
+Articles to download (only for tests that let a real downloader fetch something)
+    bodies              message-id -> the whole article as ``bytes``, lines separated by CRLF and the
+                        last line ended too, without the closing ``.`` line (``Post.articles()`` in
+                        nzbtools makes them). ``BODY <id>`` is answered ``222`` and the article when the
+                        id is in ``bodies`` and in ``have`` (so taking an id out of ``have`` removes the
+                        article for ``BODY`` as well as for ``STAT``), otherwise ``430``; ``deny_all``
+                        and the login rules apply too. Every ``BODY`` line is in ``commands``.
 """
 
 import socket
@@ -120,6 +128,7 @@ class FakeNews(object):
         self.garbage_greeting = False
         self.greeting = "200 FakeNews ready"
         self.hangup = False
+        self.bodies = {}
         for name, value in switches.items():
             if name not in _SWITCHES:
                 raise TypeError("FakeNews has no switch called %r" % name)
@@ -373,6 +382,8 @@ class FakeNews(object):
                     self.groups_joined.append(rest)
                 self._send(conn, "211 0 0 0 %s" % rest)
             return True
+        if verb == "BODY":
+            return self._body(conn, link, rest)
         if verb == "QUIT":
             with self._lock:
                 self.quits += 1
@@ -382,6 +393,25 @@ class FakeNews(object):
             self._send(conn, "200 reader mode, posting prohibited")
             return True
         self._send(conn, "500 command not recognized", link)
+        return True
+
+    def _body(self, conn, link, argument):
+        msgid = argument[1:-1] if len(argument) >= 2 and argument[0] == "<" and argument[-1] == ">" else None
+        if self.username is not None and not link.authenticated:
+            self._send(conn, "480 authentication required", link)
+        elif msgid is None:
+            self._send(conn, "501 syntax error", link)
+        elif self.deny_all or msgid not in self.bodies or msgid not in self.have:
+            self._send(conn, "430 no such article", link)
+        else:
+            lines = self.bodies[msgid].split(b"\r\n")
+            if lines and lines[-1] == b"":
+                lines.pop()
+            text = b"".join((b"." + line if line.startswith(b".") else line) + b"\r\n" for line in lines)
+            try:
+                conn.sendall(("222 0 <%s>\r\n" % msgid).encode("latin-1") + text + b".\r\n")
+            except OSError:
+                raise _Gone()
         return True
 
     def _login(self, conn, link, rest):
