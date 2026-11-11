@@ -46,6 +46,7 @@ class Loopback(object):
         self.status = 200
         self.reply = json.dumps({"result": "ok"}).encode("utf-8")
         self.hang = False
+        self.raw = None
         self.release = threading.Event()
         outer = self
 
@@ -56,6 +57,9 @@ class Loopback(object):
                 outer.requests.append({"path": self.path, "body": body, "headers": dict(self.headers)})
                 if outer.hang:
                     outer.release.wait(10)
+                    return
+                if outer.raw is not None:
+                    self.wfile.write(outer.raw)
                     return
                 self.send_response(outer.status)
                 self.send_header("Content-Type", "application/json")
@@ -151,6 +155,20 @@ class RpcCallTests(unittest.TestCase):
 
     def test_error_member(self):
         self.srv.reply = json.dumps({"error": {"name": "JSONRPCError", "message": PASSWORD}, "result": True}).encode()
+        self._assert_error()
+
+    def test_reply_that_is_not_http_is_an_rpc_error(self):
+        # http.client raises BadStatusLine (an HTTPException, not an OSError): it must not escape as a traceback.
+        self.srv.raw = b"this is not http at all\r\n\r\n"
+        self._assert_error()
+
+    def test_connection_closed_without_an_answer_is_an_rpc_error(self):
+        self.srv.raw = b""
+        self._assert_error()
+
+    def test_answer_cut_short_is_an_rpc_error(self):
+        # IncompleteRead is an HTTPException too: the body ends before Content-Length says it should.
+        self.srv.raw = b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: 500\r\n\r\n{\"result\": "
         self._assert_error()
 
     def test_timeout(self):
