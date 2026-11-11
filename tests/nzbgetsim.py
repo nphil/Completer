@@ -519,7 +519,7 @@ class Sim(object):
         parameter out (a download that was queued before the extension existed); "no" sets it to no.
         ``run``: deliver the NZB_ADDED event now. Returns the NZBID.
         """
-        base = re.sub(r"[^A-Za-z0-9._ -]", "_", name)
+        base = re.sub(r"[^A-Za-z0-9._ -]", "_", name)[:100]  # a file system refuses names beyond 255 bytes
         path = os.path.join(self.nzb_dir, base + ".nzb")
         with self.lock:
             if hasattr(source, "xml"):
@@ -797,18 +797,22 @@ class Sim(object):
         handler.end_headers()
         handler.wfile.write(body)
 
-    def fault(self, kind, method=None, times=1, delay=0.0):
-        """Make the next ``times`` calls (of ``method``, else of any) fail.
+    def fault(self, kind, method=None, times=1, delay=0.0, skip=0):
+        """Make the next ``times`` calls (of ``method``, else of any) fail, after letting ``skip`` of them pass.
 
         kind: http500, error (JSON error answer), garbage (200 but not JSON), badstatus (not even HTTP),
         drop (connection closed without an answer), slow (answers after ``delay`` seconds).
+        ``skip``: how many matching calls are answered normally first (to fail the second step of a two-step change).
         """
         with self.lock:
-            self.faults.append({"kind": kind, "method": method, "times": times, "delay": delay})
+            self.faults.append({"kind": kind, "method": method, "times": times, "delay": delay, "skip": skip})
 
     def _take_fault(self, method):
         for fault in self.faults:
             if fault["method"] is not None and fault["method"].lower() != method.lower():
+                continue
+            if fault["skip"] > 0:
+                fault["skip"] -= 1
                 continue
             if fault["times"] is None or fault["times"] > 0:
                 if fault["times"] is not None:
@@ -903,6 +907,13 @@ class Sim(object):
                 self.history.insert(0, item[1])
             else:
                 item[0] -= 1
+
+    def finish_deletions(self):
+        """NZBGet has finally moved every deleted download that was still on its way to the history."""
+        with self.lock:
+            for item in list(self._limbo):
+                self._limbo.remove(item)
+                self.history.insert(0, item[1])
 
     def _editqueue(self, params, call):
         if len(params) != 3:

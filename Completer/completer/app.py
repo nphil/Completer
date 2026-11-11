@@ -325,7 +325,9 @@ class Run(object):
         outcome.fresh = fresh
         next_check = 0
         if decision.action == WAIT:
-            next_check = int(min(now + decision.delay, anchor + settings.fresh_seconds + FRESH_EDGE))
+            next_check = int(now + decision.delay)
+            if fresh:  # a recheck is aimed at the end of the fresh window; an old post has no such window
+                next_check = min(next_check, int(anchor + settings.fresh_seconds + FRESH_EDGE))
             next_check = max(next_check, int(now) + 60)
         text = self._phrase(decision, outcome, enforce, checks, next_check - now)
         values = {cfg.CHECKS: checks, cfg.INFO: log.clean(text, 300),
