@@ -499,7 +499,9 @@ class Run(object):
             return 0
         held = True  # a dry run judges as if the download had been held
         if enforce:
-            held = subject.held_state and self._still_held(subject)
+            held = self._still_held(subject) if subject.held_state else False
+            if held is None:
+                return 0  # not what was scanned any more: nothing is written to it; the scheduled check looks again
         nzb, outcome = self.examine(subject, queued, self.seconds_left())
         if self.stopping:
             log.info("Completer: %s: stopped by NZBGet before a verdict; nothing was changed" % subject.name)
@@ -508,12 +510,16 @@ class Run(object):
         return 0
 
     def _still_held(self, subject):
-        """Whether NZBGet still shows the download as paused. When NZBGet cannot be asked, it is assumed to be."""
+        """Whether NZBGet still shows the download as paused; None when it shows something else than what was scanned.
+
+        When NZBGet cannot be asked, the download is assumed to be held.
+        """
         try:
             entry = self.guard().verify(subject.target())
         except Refused as error:
-            log.warning("Completer: %s: is not treated as held (%s)" % (subject.name, error))
-            return False
+            log.warning("Completer: %s: NZBGet shows it differently from what was scanned (%s); the scheduled "
+                        "check will look at it" % (subject.name, error))
+            return None
         except RpcError as error:
             log.warning("Completer: %s: NZBGet could not be asked whether it is still on hold (%s)" %
                         (subject.name, error))
@@ -610,17 +616,17 @@ class Run(object):
 
     @staticmethod
     def find_file(subject):
-        """The nzb file of a held download, if it is still where NZBGet put it and is the one that was scanned."""
+        """The nzb file of a held download: where NZBGet put it, and only if it is the one that was scanned."""
         base = subject.file
-        if not base:
-            return ""
+        if not base or not subject.sum:
+            return ""  # without the checksum taken at scan time, nothing proves a file is this download's nzb
         names = [base]
         if base.endswith(".queued"):
             stem = base[:-len(".queued")]
             names.extend("%s.%d.queued" % (stem, number) for number in range(2, 10))
         for candidate in names:
             try:
-                if os.path.isfile(candidate) and (not subject.sum or file_sum(candidate) == subject.sum):
+                if os.path.isfile(candidate) and file_sum(candidate) == subject.sum:
                     return candidate
             except (OSError, nzbfile.NzbError):
                 continue
