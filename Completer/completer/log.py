@@ -56,20 +56,31 @@ def _write(line):
             pass  # NZBGet went away; there is nobody left to tell
 
 
+# NZBGet writes the name of the extension in front of every message a script prints.
+_OWN_PREFIX = "Completer: "
+
+
+def _message(tag, text):
+    text = clean(text)
+    if text.startswith(_OWN_PREFIX):
+        text = text[len(_OWN_PREFIX):]  # so the log reads "Completer: ..." once, not twice
+    _write(tag + " " + text)
+
+
 def info(text):
-    _write("[INFO] " + clean(text))
+    _message("[INFO]", text)
 
 
 def detail(text):
-    _write("[DETAIL] " + clean(text))
+    _message("[DETAIL]", text)
 
 
 def warning(text):
-    _write("[WARNING] " + clean(text))
+    _message("[WARNING]", text)
 
 
 def error(text):
-    _write("[ERROR] " + clean(text))
+    _message("[ERROR]", text)
 
 
 def nzb_command(text):

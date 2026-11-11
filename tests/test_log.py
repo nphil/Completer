@@ -106,6 +106,21 @@ class PrefixTests(LogCase):
         log.info("x" * 3000)
         self.assertEqual(len(self.lines()[0]), len("[INFO] ") + 900)
 
+    def test_nzbget_names_the_extension_so_the_name_is_not_repeated(self):
+        # NZBGet shows "Completer: <text>" for every line; a text that starts with the name must not repeat it.
+        log.info("Completer: one")
+        log.detail("Completer: two")
+        log.warning("Completer: three")
+        log.error("Completer: four")
+        self.assertEqual(self.lines(), ["[INFO] one", "[DETAIL] two", "[WARNING] three", "[ERROR] four"])
+
+    def test_only_a_leading_name_is_dropped(self):
+        log.info("Server 1: Completer: x")
+        log.info("Completer:no space")
+        log.info("completer: lower case")
+        self.assertEqual(self.lines(), ["[INFO] Server 1: Completer: x", "[INFO] Completer:no space",
+                                        "[INFO] completer: lower case"])
+
 
 class NzbCommandTests(LogCase):
     def test_exact_line(self):
