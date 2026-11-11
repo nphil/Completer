@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# Working notes with private host details; must never reach the public repository.
+HANDOFF.md
