@@ -57,6 +57,7 @@ for _path in (EXTENSION, HERE):
         sys.path.insert(0, _path)
 
 import fakenntp  # noqa: E402
+import nzbtools  # noqa: E402
 from completer import app, log  # noqa: E402
 
 MAIN = os.path.join(EXTENSION, "main.py")
@@ -346,6 +347,7 @@ class Sim(object):
                        "HealthCheck": "park", "DupeCheck": "yes"}
         self.nzbget.update(nzbget or {})
         self.server_env = {}
+        self.news = []    # the FakeNews servers wired in by add_server
         self.secrets = {CONTROL_PASSWORD}
         self.lock = threading.RLock()
         self.queue = []
@@ -433,6 +435,8 @@ class Sim(object):
                 name = SERVER_FIELDS.get(match.group(2), match.group(2).capitalize())
                 self.server_env["NZBOP_Server%s.%s" % (match.group(1), name)] = value
         self.secrets.add(fields.get("password", fakenntp.PASSWORD))
+        if news not in self.news:
+            self.news.append(news)
         return number
 
     def servers_configured(self):
@@ -1122,7 +1126,13 @@ class Sim(object):
 
 
 class SimTestCase(unittest.TestCase):
-    """Base class: makes sims and fake news servers that are cleaned up, and checks every sim at the end."""
+    """Base class: makes sims and fake news servers that are cleaned up, and checks every sim at the end.
+
+    ``world()`` is the usual start of a test: a fake NZBGet wired to one fake news server. ``post()`` then
+    makes posts whose dates fit that sim's clock.
+    """
+
+    sim = None
 
     def make_news(self, have=(), **switches):
         news = fakenntp.FakeNews(have=have, **switches).start()
@@ -1134,6 +1144,31 @@ class SimTestCase(unittest.TestCase):
         self.addCleanup(sim.stop)
         self.addCleanup(self._check_sim, sim)  # cleanups run last-in first-out: this one runs before stop()
         return sim
+
+    def world(self, have=(), mode="Enforce", options=None, nzbget=None, inprocess=True, boot=True, **switches):
+        """A fake NZBGet wired to one fake news server that holds the message-ids ``have``.
+
+        ``mode`` is Completer's Mode option; ``options`` more options of the extension, ``nzbget`` NZBGet's own
+        (ParCheck, ...), ``switches`` the behaviour switches of the news server. In Enforce mode the first
+        scheduled check is run, as NZBGet does when it starts: Completer holds new downloads only while that
+        safety net is known to be working. ``inprocess=False`` runs every script as a real process, which needs
+        the real clock (``sim.advance`` is then not available).
+        """
+        news = self.make_news(have=have, **switches)
+        merged = {"Mode": mode}
+        merged.update(options or {})
+        sim = self.make_sim(clock=SimClock() if inprocess else time.time, options=merged, nzbget=nzbget,
+                            inprocess=inprocess)
+        sim.add_server(news)
+        self.sim = sim
+        if boot and mode.lower() == "enforce":
+            self.assertEqual(sim.boot().code, 0)
+        return sim
+
+    def post(self, tag, **kwargs):
+        """A made-up post (see ``nzbtools.make_post``) whose dates are relative to the sim's clock."""
+        kwargs.setdefault("now", self.sim.now if self.sim is not None else time.time())
+        return nzbtools.make_post(tag, **kwargs)
 
     def _check_sim(self, sim):
         if not sim.expect_violations:
