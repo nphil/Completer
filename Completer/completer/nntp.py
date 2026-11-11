@@ -20,7 +20,7 @@ CONNECT_TIMEOUT = 8.0   # seconds for connecting, encryption and login, each ste
 ANSWER_TIMEOUT = 10.0   # seconds to wait for one answer
 
 _FAMILIES = {"ipv4": socket.AF_INET, "ipv6": socket.AF_INET6}
-_LIMIT = re.compile(r"too many|connection limit|limit (reached|exceeded)|max(imum)?[ a-z]*connections"
+_LIMIT = re.compile(r"too many|connection limit|limit (reached|exceeded)|max(imum)?[ a-z]*connections|no more connections"
                     r"|connections? exceeded|simultaneous", re.IGNORECASE)
 # Answers to STAT that say something is wrong with the connection, not with the article.
 _BROKEN = (400, 480, 481, 482, 483, 502, 503)

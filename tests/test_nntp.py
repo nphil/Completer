@@ -198,6 +198,16 @@ class OpenTests(NewsCase):
                 self.assertEqual(caught.exception.kind, "busy")
                 self.assertEqual(news.rejected_total, 1)
 
+    def test_a_provider_that_says_no_more_connections_is_busy(self):
+        # The wording one real provider uses for "all my connections for your account are taken".
+        for text in ("502 no more connections", "502 No more connections allowed for this account"):
+            with self.subTest(text=text):
+                news = self.news(greeting=text)
+                with self.assertRaises(nntp.NNTPError) as caught:
+                    nntp.Connection(self.server(news)).open(TIMEOUT)
+                self.assertEqual(caught.exception.kind, "busy")
+                self.assertEqual(caught.exception.code, 502)
+
     def test_garbage_greeting_is_protocol(self):
         news = self.news(garbage_greeting=True)
         with self.assertRaises(nntp.NNTPError) as caught:
