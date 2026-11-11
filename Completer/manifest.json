@@ -82,11 +82,11 @@
 		{
 			"name": "TimeLimit",
 			"displayName": "TimeLimit",
-			"value": 45,
+			"value": 90,
 			"description": [
 				"The most seconds one check may take (10 to 300).",
 				"When time runs out without a certain answer, the download is let through.",
-				"Default = 45."
+				"Default = 90."
 			],
 			"select": []
 		},

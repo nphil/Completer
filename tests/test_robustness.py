@@ -1315,7 +1315,7 @@ class OddStartTests(Base):
                   (8, 1, 1, 2, 2, 2, 3, 2)),
                 ("FreshHours", ("-5", "1000", "abc", "0.5"), "fresh_seconds", (0, 72 * 3600, 7200, 1800)),
                  ("MaxArticles", ("5", "1000000000", "abc", "-1"), "max_articles", (100, 20000, 1200, 100)),
-                 ("TimeLimit", ("0", "99999", "x", "12"), "time_limit", (10, 300, 45, 12)),
+                 ("TimeLimit", ("0", "99999", "x", "12"), "time_limit", (10, 300, 90, 12)),
                  ("MaxFillPercent", ("250", "-10", "abc", "50"), "max_fill", (1.0, 0.0, 1.0, 0.5)))
         for option, values, attribute, wanted in table:
             for value, expected in zip(values, wanted):

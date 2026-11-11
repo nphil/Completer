@@ -100,7 +100,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(s.connections, 2)
         self.assertEqual(s.fresh_seconds, 7200)
         self.assertEqual(s.max_articles, 1200)
-        self.assertEqual(s.time_limit, 45)
+        self.assertEqual(s.time_limit, 90)
         self.assertEqual(s.max_fill, 1.0)
         self.assertEqual(s.ignore_servers, frozenset())
         self.assertFalse(s.verbose)
@@ -138,7 +138,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_time_limit_clamped(self):
         for text, expected in (("10", 10), ("9", 10), ("1", 10), ("0", 10), ("300", 300), ("301", 300),
-                               ("5000", 300), ("60", 60), ("fast", 45), ("", 45)):
+                               ("5000", 300), ("60", 60), ("fast", 90), ("", 90)):
             self.assertEqual(Settings({"NZBPO_TimeLimit": text}).time_limit, expected, text)
 
     def test_max_fill_percent_clamped(self):

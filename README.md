@@ -69,7 +69,7 @@ Values outside the allowed range are moved to the nearest allowed value; a value
 | `FreshHours` | `2` | How long after it was posted a download counts as fresh (0 to 72 hours). A fresh download that looks incomplete is held and checked again instead of being failed at once; the check after the fresh time is final. `0` turns this off. |
 | `Connections` | `2` | Connections opened to one news server while checking (1 to 8). Never more than the connections NZBGet is given for that server. |
 | `MaxArticles` | `1200` | The most articles asked about for one download (100 to 20000). Most downloads need far fewer. |
-| `TimeLimit` | `45` | The most seconds one check may take (10 to 300). When time runs out without a certain answer, the download is let through (or, if it looked bad but a server could not be asked, rechecked a few times first). |
+| `TimeLimit` | `90` | The most seconds one check may take (10 to 300). When time runs out without a certain answer, the download is let through (or, if it looked bad but a server could not be asked, rechecked a few times first). |
 | `MaxFillPercent` | `100` | Fail a download when more than this share of it (percent) exists only on fill servers, that is servers in a level above the first. `100` switches it off. |
 | `IgnoreServers` | empty | Numbers of NZBGet news servers that Completer never asks, for example `3, 7-11`. Empty means every active server. |
 | `Verbose` | `no` | `yes` writes the details of every check into the log: questions per server and how long they took. |

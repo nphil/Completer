@@ -22,11 +22,14 @@ from .nntp import ServerSession
 from .nzbfile import spread_order
 from .stats import Tally, capacity, judge
 
-DATA_STAGES = (120, 400, 1200)  # content articles asked about after each round, in total
-PAR_STAGES = (40, 120, 300)     # repair articles, asked about only once content turns out to be missing
-SMALL = 200                     # a download with this many articles or fewer is checked completely
-CONFIRM_PAUSE = 1.5             # seconds before the articles that looked missing are asked about again
-CONFIRM_LIMIT = 400
+# Missing articles are slow to ask about: a server can take a second or more to answer "not here", while "here" comes
+# back at once. The first round is small so a post that is clearly gone is settled before the time limit runs out;
+# healthy posts simply go on to the next round.
+DATA_STAGES = (40, 120, 400, 1200)  # content articles asked about after each round, in total
+PAR_STAGES = (20, 40, 120, 300)     # repair articles, asked about only once content turns out to be missing
+SMALL = 200                         # a download with this many articles or fewer is checked completely
+CONFIRM_PAUSE = 1.5                 # seconds before the articles that looked missing are asked about again
+CONFIRM_SAMPLE = 24                 # how many of them are asked about again; spread over the whole list
 MIN_ROUND_SECONDS = 4.0
 
 
@@ -218,15 +221,8 @@ class Checker(object):
         if rest and others:
             self._ask_all(others, rest)
 
-    def confirm(self, probes):
-        """Ask every server once more about articles that looked missing or fill-only.
-
-        A server can answer "not here" by mistake for a moment. Returns how many
-        articles turned up after all, or None when there was no time left to ask.
-        """
-        probes = probes[:CONFIRM_LIMIT]
-        if not probes:
-            return 0
+    def _reask(self, probes):
+        """Ask every server once more about these probes. Returns how many turned up, or None when time ran out."""
         if self.deadline.left() < CONFIRM_PAUSE + 3.0:
             return None
         time.sleep(CONFIRM_PAUSE)
@@ -237,6 +233,26 @@ class Checker(object):
             return None
         with self._merge:
             return sum(1 for probe, old in zip(probes, before) if probe.found != old)
+
+    def confirm(self, probes):
+        """Ask every server once more about the articles that looked missing or fill-only.
+
+        A server can answer "not here" by mistake for a moment. Each "not here" is slow, so a spread sample of
+        CONFIRM_SAMPLE is asked first. Only when one of those turns up after all are the others asked too. Returns how
+        many articles turned up, or None when there was no time left to ask.
+        """
+        if not probes:
+            return 0
+        if len(probes) <= CONFIRM_SAMPLE:
+            return self._reask(probes)
+        step = len(probes) / float(CONFIRM_SAMPLE)
+        picked = {int(i * step) for i in range(CONFIRM_SAMPLE)}
+        sample = [probe for index, probe in enumerate(probes) if index in picked]
+        turned_up = self._reask(sample)
+        if not turned_up:
+            return turned_up
+        rest = self._reask([probe for index, probe in enumerate(probes) if index not in picked])
+        return None if rest is None else turned_up + rest
 
     # ------------------------------------------------------------ deciding
 

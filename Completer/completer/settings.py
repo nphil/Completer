@@ -180,7 +180,7 @@ class Settings(object):
         self.connections = _number(own_option(env, "Connections"), 2, 1, 8)
         self.fresh_seconds = int(_number(own_option(env, "FreshHours"), 2.0, 0.0, 72.0, float) * 3600)
         self.max_articles = _number(own_option(env, "MaxArticles"), 1200, 100, 20000)
-        self.time_limit = _number(own_option(env, "TimeLimit"), 45, 10, 300)
+        self.time_limit = _number(own_option(env, "TimeLimit"), 90, 10, 300)
         self.max_fill = _number(own_option(env, "MaxFillPercent"), 100.0, 0.0, 100.0, float) / 100.0
         self.ignore_servers = _id_list(own_option(env, "IgnoreServers"))
         self.verbose = _yes(own_option(env, "Verbose"))

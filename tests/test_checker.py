@@ -288,6 +288,18 @@ class UnknownTests(CheckerCase):
         self.assertIn("was not found", outcome.describe())
         self.assertLess(self.elapsed, 2 + 2.5)
 
+    def test_gone_post_fails_in_time_when_not_here_answers_are_slow(self):
+        # Real servers take a second or more per "not here". A mostly gone post must still end as fail within the
+        # time limit: a small first round, then only a sample of the missing articles asked again.
+        post = self.post("w")
+        have = list(post.par_ids) + post.data_ids[:len(post.data_ids) // 10]
+        news = self.news(have=have, slow=0.1)
+        outcome = self.check(post, (news, {}), seconds=15)
+        self.assertEqual(outcome.verdict, "fail")
+        counts = collections.Counter(news.stat_log)
+        self.assertLessEqual(sum(1 for n in counts.values() if n == 2), checker.CONFIRM_SAMPLE)
+        self.assertLess(self.elapsed, 15)
+
 
 class ServerSelectionTests(CheckerCase):
     def test_level_one_server_is_asked_only_about_what_level_zero_lacks(self):
@@ -696,9 +708,9 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(checker._targets(checker.SMALL, 1200, checker.DATA_STAGES), [checker.SMALL])
 
     def test_stages_grow_to_the_limit(self):
-        self.assertEqual(checker._targets(5000, 1200, checker.DATA_STAGES), [120, 400, 1200])
-        self.assertEqual(checker._targets(5000, 300, checker.DATA_STAGES), [120, 300])
-        self.assertEqual(checker._targets(300, 1200, checker.DATA_STAGES), [120, 300])
+        self.assertEqual(checker._targets(5000, 1200, checker.DATA_STAGES), [40, 120, 400, 1200])
+        self.assertEqual(checker._targets(5000, 300, checker.DATA_STAGES), [40, 120, 300])
+        self.assertEqual(checker._targets(300, 1200, checker.DATA_STAGES), [40, 120, 300])
 
     def test_nothing_to_ask(self):
         self.assertEqual(checker._targets(0, 1200, checker.DATA_STAGES), [])
