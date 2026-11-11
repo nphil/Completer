@@ -10,25 +10,25 @@ permissions:
 
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # a fixed image: Python 3.9 is not published for newer ones
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Run the unit tests
         run: python -m unittest discover -s tests -v
 
   no-private-details:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Look for private addresses and paths in tracked files
         run: |
           # private IPv4 ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x) and machine-specific folders
