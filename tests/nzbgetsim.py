@@ -35,6 +35,7 @@ SIGTERM) need ``clock=time.time``.
 """
 
 import base64
+import gzip
 import io
 import json
 import os
@@ -210,6 +211,7 @@ class Entry(object):
         self.priority = 0
         self.active = 0
         self.history_time = 0
+        self.downloaded_mb = 0  # what NZBGet reports as DownloadedSizeMB once it is in the history
 
     def get(self, name, default=None):
         return find_parameter(self.params, name, default)
@@ -486,7 +488,11 @@ class Sim(object):
     def parse_nzb(path):
         """The files of an nzb as NZBGet's queue shows them."""
         found = []
-        root = ElementTree.parse(path).getroot()
+        with open(path, "rb") as handle:
+            raw = handle.read()
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        root = ElementTree.fromstring(raw)
         for node in root.iter():
             if node.tag.rsplit("}", 1)[-1] != "file":
                 continue
@@ -523,14 +529,16 @@ class Sim(object):
         path = os.path.join(self.nzb_dir, base + ".nzb")
         with self.lock:
             if hasattr(source, "xml"):
-                text = source.xml
+                data = source.xml.encode("utf-8")
+            elif isinstance(source, (bytes, bytearray)):
+                data = bytes(source)  # e.g. a gzip'd nzb
             elif os.path.isfile(str(source)):
-                with open(source, encoding="utf-8") as handle:
-                    text = handle.read()
+                with open(source, "rb") as handle:
+                    data = handle.read()
             else:
-                text = source
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(text)
+                data = source.encode("utf-8")
+            with open(path, "wb") as handle:
+                handle.write(data)
             scan = {"name": name, "category": category, "params": [list(pair) for pair in (params or {}).items()],
                     "paused": bool(paused), "priority": 0, "top": 0}
             if queue_scripts == "no":
@@ -896,6 +904,7 @@ class Sim(object):
                 "DeleteStatus": entry.delete_status, "MarkStatus": entry.mark_status,
                 "Status": entry.text_status, "HistoryTime": entry.history_time, "FileSizeMB": size // 1048576,
                 "FileSizeLo": size & 0xFFFFFFFF, "FileSizeHi": size >> 32, "Health": 1000,
+                "DownloadedSizeMB": entry.downloaded_mb,
                 "Parameters": [{"Name": name, "Value": value} for name, value in entry.params],
                 "ScriptStatuses": []}
 
