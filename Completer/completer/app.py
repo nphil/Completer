@@ -452,11 +452,14 @@ class Run(object):
             return False  # not in the history yet; the next scheduled check finishes the job
         return self.finish_removal(target)
 
-    def finish_removal(self, target):
-        """Second step of a failure: the removed download gets NZBGet's 'bad' mark, which Sonarr and Radarr read."""
+    def finish_removal(self, target, marked=False):
+        """Second step of a failure: the removed download gets NZBGet's 'bad' mark, which Sonarr and Radarr read.
+
+        ``marked``: NZBGet already carries the mark (an earlier run was interrupted after it); only the note is missing.
+        """
         guard = self.guard()
         try:
-            if not guard.edit_many(target, [("HistoryMarkBad", "")], history=True)[0]:
+            if not marked and not guard.edit_many(target, [("HistoryMarkBad", "")], history=True)[0]:
                 raise RpcError("NZBGet did not mark it")
             guard.set_parameters(target, {cfg.STATE: cfg.FAILED}, history=True)
         except (Refused, RpcError) as error:
@@ -633,23 +636,21 @@ class Run(object):
             history = guard.history()
         except RpcError:
             return
+        retry = set()  # failures that were started and could not be finished just now
         for item in history:
             params = params_of(item)
             if item.get("Kind") != "NZB" or params.get(cfg.STATE) != cfg.FAILING or not params.get(cfg.TOKEN):
                 continue
             nzb_id = item.get("NZBID")
-            if type(nzb_id) is not int or nzb_id <= 0:
-                continue
-            if item.get("DeleteStatus") != "MANUAL" or item.get("MarkStatus") == "BAD":
-                hints.discard(nzb_id)
-                continue
+            if type(nzb_id) is not int or nzb_id <= 0 or item.get("DeleteStatus") != "MANUAL":
+                continue  # not a removal that Completer made
             target = Target(nzb_id, params[cfg.TOKEN], item.get("NZBName") or item.get("Name") or "")
-            if self.finish_removal(target):
-                hints.discard(nzb_id)
+            if self.finish_removal(target, marked=item.get("MarkStatus") == "BAD"):
                 log.info("Completer: finished failing download %d that was interrupted" % nzb_id)
-        for nzb_id in hints:
-            if not any(item.get("NZBID") == nzb_id for item in history):
-                self.unfinished.remove(nzb_id)  # not in the history: it never got that far
+            else:
+                retry.add(nzb_id)
+        for nzb_id in hints - retry:
+            self.unfinished.remove(nzb_id)  # finished, never got as far as the history, or no failure of ours
 
     # ------------------------------------------------------------ commands
 
