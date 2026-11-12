@@ -1525,3 +1525,64 @@ class OtherFlowTests(FlowCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ====================================================================== Screen mode: checked while waiting, never held
+
+
+class ScreenModeTests(FlowCase):
+    """Screen mode (the recommended one): nothing is held, NZBGet's single queue-script line is never used for a
+    check, and the scheduled check removes only downloads that cannot be completed, before NZBGet reaches them."""
+
+    def start(self, **kwargs):
+        kwargs.setdefault("mode", "Screen")
+        return self.world(**kwargs)
+
+    def test_a_new_download_is_marked_but_never_held_and_the_queue_script_asks_nobody(self):
+        sim = self.start()
+        news = sim.news[0]
+        nzb_id = self.add(self.good())
+        self.assertEqual(sim.status(nzb_id), "QUEUED")
+        self.assertEqual(self.param(nzb_id, STATE), "unchecked")
+        self.assertTrue(self.param(nzb_id, TOKEN))
+        self.assertNotIn("PAUSED=1", sim.runs_of("scan")[0].commands)
+        self.assertEqual(news.stats_total, 0)  # the queue script returned without asking a news server
+        self.assertEqual(sim.edits, [])
+
+    def test_the_scheduled_check_passes_a_good_download_without_touching_its_queue_state(self):
+        sim = self.start()
+        nzb_id = self.add(self.good())
+        sim.sweep()
+        self.assertEqual(sim.status(nzb_id), "QUEUED")
+        self.assertEqual(self.param(nzb_id, STATE), "passed")
+        self.assertEqual(set(self.commands_of(nzb_id)), {"GroupSetParameter"})
+
+    def test_a_download_that_cannot_be_completed_is_removed_as_failed_and_only_that_one(self):
+        sim = self.start()
+        good_id = self.add(self.good("neighbour"))
+        bad_id = self.add(self.bad("broken"))
+        sim.sweep()
+        self.assert_failed(bad_id)
+        self.assertEqual(sim.status(good_id), "QUEUED")
+        self.assertEqual(self.param(good_id, STATE), "passed")
+        self.assertNotIn("GroupDelete", self.commands_of(good_id))
+        self.assertEqual(sim.sonarr_view(good_id), None)
+
+    def test_several_waiting_downloads_are_all_settled_in_one_scheduled_check(self):
+        sim = self.start(options={"Connections": 2})
+        ids = [self.add(self.good("g%d" % n)) for n in range(3)] + [self.add(self.bad("b%d" % n)) for n in range(2)]
+        sim.sweep()
+        for nzb_id in ids[:3]:
+            self.assertEqual(self.param(nzb_id, STATE), "passed")
+        for nzb_id in ids[3:]:
+            self.assert_failed(nzb_id)
+
+    def test_switching_from_enforce_to_screen_lets_go_of_what_was_held(self):
+        sim = self.world(mode="Enforce")
+        nzb_id = self.add(self.good(), run=False)
+        self.assertTrue(self.is_held(nzb_id))
+        sim.set_option("Mode", "Screen")
+        sim.advance(SWEEP_EVERY)
+        sim.sweep()
+        self.assertEqual(sim.status(nzb_id), "QUEUED")
+        self.assertFalse(self.is_held(nzb_id))

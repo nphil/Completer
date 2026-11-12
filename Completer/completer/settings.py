@@ -32,6 +32,11 @@ RELEASED = "released"    # resumed without a verdict (fail-open)
 FAILING = "failing"      # being removed as failed by the scheduler
 OBSERVED = "observed"    # dry run: checked, nothing was changed
 HELD = (PENDING, WAITING)
+UNCHECKED = "unchecked"  # Screen mode: not held, waiting for its first check by the scheduler
+RECHECK = "recheck"      # Screen mode: not held, checked again by the scheduler later
+SCREENING = (UNCHECKED, RECHECK)
+# The queue states in which a download may be removed: nothing is unpacking it or running a script for it.
+REMOVABLE = ("QUEUED", "PAUSED", "DOWNLOADING")
 
 # The only download parameters Completer ever writes.
 PARAMETERS = (TOKEN, STATE, SINCE, CHECKS, NEXT, FILE, SUM, INFO, VERDICT)
@@ -174,7 +179,7 @@ class Settings(object):
 
     def __init__(self, env):
         mode = own_option(env, "Mode", "DryRun").strip().lower()
-        self.mode = mode if mode in ("enforce", "off") else "dryrun"
+        self.mode = mode if mode in ("enforce", "screen", "off") else "dryrun"
         self.categories = frozenset(
             part.strip().lower() for part in re.split(r"[,;]", own_option(env, "Categories")) if part.strip())
         self.connections = _number(own_option(env, "Connections"), 2, 1, 8)

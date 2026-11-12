@@ -54,20 +54,22 @@ You need NZBGet 26 or newer and Python 3.9 or newer on the machine that runs NZB
    `Completer: Some.Release.Name: would be failed: 31.2% of it is missing on every server and only 9.8% can be repaired (400 of 1500 articles checked)`.
    (The numbers here are only an example.) The verdict is also stored on the download as the parameters `Completer_Info` and `Completer_Verdict`.
 7. After some downloads have come and gone, press **Report** (see below) to compare Completer's verdicts with what NZBGet really did.
-8. When you are happy, press **TestServers** while NZBGet is downloading (see below), then set `Mode` to `Enforce`, save and reload.
+8. When you are happy, press **TestServers** while NZBGet is downloading (see below), then set `Mode` to `Screen` (recommended) or `Enforce`, save and reload.
 
-Completer only starts holding downloads once its scheduled check has reported in (that happens when NZBGet starts it, then every five minutes). After an install or reload, the first downloads can therefore pass without being held; the log says so.
+**Screen or Enforce?** `Screen` never holds anything: downloads go into the queue as usual, and every five minutes the scheduled check looks at the ones still waiting their turn, front of the queue first and several at a time, and removes the ones that cannot be completed before NZBGet downloads them. Good downloads are never delayed, and NZBGet's single queue-script line (shared with every other queue script) is not used for checks at all. `Enforce` holds each new download until it is checked; it stops more bad downloads before a single byte arrives, but checks run one at a time in that queue-script line, so when an *arr grabs a whole season at once the downloads queue up behind the checks. For unattended use, choose `Screen`.
+
+In `Enforce`, Completer only starts holding downloads once its scheduled check has reported in (that happens when NZBGet starts it, then every five minutes). After an install or reload, the first downloads can therefore pass without being held; the log says so.
 
 ## Settings
 
-Values outside the allowed range are moved to the nearest allowed value; a value that cannot be read gives the default. A `Mode` that is not one of the three words means `DryRun`.
+Values outside the allowed range are moved to the nearest allowed value; a value that cannot be read gives the default. A `Mode` that is not one of the four words means `DryRun`.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `Mode` | `DryRun` | `DryRun`: check and log only; nothing is held, paused or failed. `Enforce`: hold new downloads while they are checked, release the ones that pass, fail the ones that cannot be completed. `Off`: check nothing and let go of anything still held. |
+| `Mode` | `DryRun` | `Screen` (recommended): never hold; check waiting downloads in the background and remove the ones that cannot be completed before they are downloaded. `DryRun`: check and log only; nothing is held, paused or failed. `Enforce`: hold new downloads while they are checked, release the ones that pass, fail the ones that cannot be completed. `Off`: check nothing and let go of anything still held. |
 | `Categories` | empty | Only downloads in these categories are checked (comma separated, case does not matter). Empty means every category. |
 | `FreshHours` | `2` | How long after it was posted a download counts as fresh (0 to 72 hours). A fresh download that looks incomplete is held and checked again instead of being failed at once; the check after the fresh time is final. `0` turns this off. |
-| `Connections` | `2` | Connections opened to one news server while checking (1 to 8). Never more than the connections NZBGet is given for that server. |
+| `Connections` | `2` | Connections opened to one news server while checking (1 to 8). Never more than the connections NZBGet is given for that server. In `Screen` this is also how many downloads are checked side by side, each with one connection per server. |
 | `MaxArticles` | `1200` | The most articles asked about for one download (100 to 20000). Most downloads need far fewer. |
 | `TimeLimit` | `90` | The most seconds one check may take (10 to 300). When time runs out without a certain answer, the download is let through (or, if it looked bad but a server could not be asked, rechecked a few times first). |
 | `MaxFillPercent` | `100` | Fail a download when more than this share of it (percent) exists only on fill servers, that is servers in a level above the first. `100` switches it off. |

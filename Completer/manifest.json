@@ -29,11 +29,12 @@
 			"description": [
 				"What Completer does with its verdict.",
 				"",
+				"Screen (recommended): new downloads are never held. While they wait their turn in the queue, the scheduled check looks at them, front first and several at a time, and removes the ones that cannot be completed before NZBGet downloads them, so Sonarr/Radarr search again. Good downloads are never delayed.",
 				"DryRun: checks every new download and writes the verdict into the log and into the download's parameters. Nothing is held, paused or failed.",
-				"Enforce: new downloads are held while they are checked, released when they pass and failed when they cannot be completed.",
+				"Enforce: new downloads are held while they are checked, released when they pass and failed when they cannot be completed. Checks run one at a time in NZBGet's queue-script line, so a burst of new downloads waits.",
 				"Off: checks nothing and lets go of anything it still holds."
 			],
-			"select": ["DryRun", "Enforce", "Off"]
+			"select": ["Screen", "DryRun", "Enforce", "Off"]
 		},
 		{
 			"name": "Categories",
@@ -63,6 +64,7 @@
 			"value": 2,
 			"description": [
 				"How many connections Completer opens to one news server while it checks (1 to 8).",
+				"In Screen mode this is also how many downloads are checked side by side, each with one connection per server.",
 				"It never uses more than the connections you gave that server in NZBGet. Servers that already use all their connections for downloading may refuse extra ones; use the TestServers button to find out.",
 				"Default = 2."
 			],

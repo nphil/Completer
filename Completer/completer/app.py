@@ -3,11 +3,15 @@
 NZBGet starts the extension in four ways, told apart by the environment:
 
 * as a scan script, when a new nzb arrives (``NZBNP_FILENAME``). It runs for a
-  few milliseconds, asks nobody anything, and may put that one download on hold;
-* as a queue script on the event NZB_ADDED (``NZBNA_EVENT``): it checks that one
-  download with the nzb file NZBGet names for it, and acts on the verdict;
+  few milliseconds, asks nobody anything, and marks that one download (Enforce
+  also puts it on hold);
+* as a queue script on the event NZB_ADDED (``NZBNA_EVENT``): in Enforce and
+  DryRun it checks that one download with the nzb file NZBGet names for it, and
+  acts on the verdict; in Screen it returns at once, so it never makes other
+  downloads wait for NZBGet's single queue-script line;
 * as a scheduled task (``NZBSP_TASKID``) every five minutes: the safety net
-  that checks, rechecks and releases whatever is still held;
+  that checks, rechecks and releases whatever is still held, and in Screen mode
+  the place where waiting downloads are checked, several at a time, front first;
 * as a command button on the settings page (``NZBCP_COMMAND``).
 
 Everything Completer changes in NZBGet is the download it was started for, or a
@@ -17,6 +21,7 @@ a held download is let go, never failed.
 """
 
 import binascii
+import copy
 import os
 import signal
 import sys
@@ -249,26 +254,28 @@ class Run(object):
     # ------------------------------------------------------------ scan
 
     def scan(self):
-        """A new nzb is arriving: put exactly this one on hold, so the queue script can check it first."""
+        """A new nzb is arriving. Enforce: put exactly this one on hold, so the queue script can check it first.
+        Screen: only mark it, so the scheduled check can find and check it while it waits its turn; never held."""
         settings = self.settings
         env = self.env
-        if settings.mode != "enforce" or not cfg.is_yes(cfg.parameter(env, "Completer:")):
+        screen = settings.mode == "screen"
+        if settings.mode not in ("enforce", "screen") or not cfg.is_yes(cfg.parameter(env, "Completer:")):
             return 0
         name = log.clean(env.get("NZBNP_NZBNAME", ""), 120)
         path = env.get("NZBNP_FILENAME", "")
         if not settings.wants(env.get("NZBNP_CATEGORY", "")):
             return 0
         if cfg.parameter(env, cfg.TOKEN):
-            return 0  # it has been held before; whatever it carries is dealt with by the queue script
-        if env.get("NZBNP_PAUSED", "0").strip() == "1":
+            return 0  # it has been seen before; whatever it carries is dealt with by the queue script or the sweep
+        if not screen and env.get("NZBNP_PAUSED", "0").strip() == "1":
             self.note("%s was added paused by whoever added it and is left alone" % name)
             return 0
-        if not settings.scheduler_active:
+        if not screen and not settings.scheduler_active:
             log.warning("Completer: %s is not put on hold because Completer is not in NZBGet's Extensions list, "
                         "so nothing would release it if anything went wrong" % name)
             return 0
         age = self.heartbeat.age(self.clock())
-        if not self.heartbeat.alive(self.clock()):
+        if not screen and not self.heartbeat.alive(self.clock()):
             log.warning("Completer: %s is not put on hold because the scheduled check has not reported %s; "
                         "downloads are only held while that safety net is known to work" %
                         (name, "yet" if age is None else "for %d minutes" % (age // 60)))
@@ -276,21 +283,24 @@ class Run(object):
         try:
             checksum = file_sum(path)
         except (OSError, nzbfile.NzbError):
-            self.note("%s is not put on hold because its nzb file cannot be read" % name)
+            self.note("%s is not %s because its nzb file cannot be read" % (name, "checked" if screen else "put on hold"))
             return 0
         token = binascii.hexlify(os.urandom(8)).decode("ascii")
         log.nzb_command("NZBPR_%s=%s" % (cfg.TOKEN, token))
-        log.nzb_command("NZBPR_%s=%s" % (cfg.STATE, cfg.PENDING))
+        log.nzb_command("NZBPR_%s=%s" % (cfg.STATE, cfg.UNCHECKED if screen else cfg.PENDING))
         log.nzb_command("NZBPR_%s=%d" % (cfg.SINCE, int(self.clock())))
         log.nzb_command("NZBPR_%s=%s" % (cfg.SUM, checksum))
         log.nzb_command("NZBPR_%s=%s.queued" % (cfg.FILE, path))  # NZBGet's usual new name; the queue script knows
+        if screen:
+            self.note("%s will be checked in the background while it waits its turn" % name)
+            return 0
         log.nzb_command("PAUSED=1")
         self.note("%s is on hold until it has been checked" % name)
         return 0
 
     # ------------------------------------------------------------ examining and deciding
 
-    def examine(self, subject, path, seconds):
+    def examine(self, subject, path, seconds, settings=None):
         """Read the nzb and ask the news servers about it. Returns (nzb, outcome); nzb is None when unreadable."""
         try:
             if not path:
@@ -305,7 +315,7 @@ class Run(object):
         except OSError:
             return None, checker.Outcome("error", "the nzb file cannot be read")
         deadline = self._deadline(max(1.0, seconds))
-        outcome = checker.check(nzb, self.servers(), self.settings, deadline, self.clock())
+        outcome = checker.check(nzb, self.servers(), settings or self.settings, deadline, self.clock())
         return nzb, outcome
 
     def settle(self, subject, nzb, outcome, held, enforce, own):
@@ -477,6 +487,10 @@ class Run(object):
         settings = self.settings
         if env.get("NZBNA_EVENT") != "NZB_ADDED":
             return 0
+        if settings.mode == "screen":
+            # NZBGet runs one queue script at a time for every download; a check here would make all the others
+            # wait. In Screen mode the scheduled check does the checking, outside that line.
+            return 0
         subject = Subject.from_env(env)
         if subject.nzb_id <= 0:
             return 0
@@ -563,12 +577,146 @@ class Run(object):
                                                                              type(error).__name__))
                 word = "trouble"
             counts[word] = counts.get(word, 0) + 1
+        if self.settings.mode == "screen" and not self.stopping:
+            self.screen(groups, counts)
         if counts:
             log.info("Completer: scheduled check done: %s" % ", ".join(
                 "%s %d" % (word, number) for word, number in sorted(counts.items())))
         else:
             self.note("scheduled check done: nothing is on hold")
         return 0
+
+    # ------------------------------------------------------------ Screen mode
+
+    def screen(self, groups, counts):
+        """Screen mode: check the downloads that wait their turn, front of the queue first, several at a time.
+
+        Nothing is ever held. Each check uses one connection per news server, and as many checks run side by side
+        as the Connections option allows, so Completer never uses more connections than in Enforce mode.
+        """
+        now = self.clock()
+        due = []
+        for entry in groups:  # NZBGet lists the queue in the order it downloads
+            params = params_of(entry)
+            if entry.get("Kind") != "NZB" or not params.get(cfg.TOKEN) or params.get(cfg.STATE) not in cfg.SCREENING:
+                continue
+            if entry.get("Status") not in cfg.REMOVABLE:
+                continue  # unpacking, post-processing or a script has it already: a check cannot save anything now
+            if params.get(cfg.STATE) == cfg.RECHECK and _number(params.get(cfg.NEXT)) > now:
+                continue
+            due.append(entry)
+        if not due:
+            return
+        single = copy.copy(self.settings)
+        single.connections = 1
+        take = threading.Lock()
+        self._edit = threading.Lock()
+
+        def work():
+            while not self.stopping:
+                with take:
+                    if not due or self.seconds_left(GRACE) - SAFETY_SECONDS < 15:
+                        return
+                    entry = due.pop(0)
+                try:
+                    word = self.screen_one(entry, single)
+                except Exception as error:  # one download's trouble must not stop the others
+                    log.error("Completer: %s: the scheduled check failed (%s)" % (entry.get("NZBName", ""),
+                                                                                 type(error).__name__))
+                    word = "trouble"
+                with take:
+                    counts[word] = counts.get(word, 0) + 1
+
+        workers = [threading.Thread(target=work, daemon=True) for _ in range(max(1, self.settings.connections))]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            while worker.is_alive() and self.seconds_left(0) > 0:
+                worker.join(0.5)
+        if due:
+            counts["later"] = counts.get("later", 0) + len(due)
+
+    def screen_one(self, entry, single):
+        """Check one download that is not held. Returns a word for the summary."""
+        subject = Subject.from_entry(entry)
+        if not self.settings.wants(subject.category):
+            return "not covered"
+        path = self.find_file(subject)
+        if not path:
+            with self._edit:
+                self.record(subject, {cfg.STATE: cfg.RELEASED, cfg.INFO: "its nzb file is not available"}, own=False)
+            return "no nzb file"
+        subject.file = path
+        if not self.locks.acquire(subject.nzb_id):
+            return "busy"
+        try:
+            seconds = min(self.settings.time_limit, self.seconds_left(GRACE)) - SAFETY_SECONDS
+            if seconds < 10:
+                return "later"
+            nzb, outcome = self.examine(subject, path, seconds, single)
+            if self.stopping:
+                return "stopped"
+            with self._edit:
+                return self.settle_screen(subject, nzb, outcome)
+        finally:
+            self.locks.release(subject.nzb_id)
+
+    def settle_screen(self, subject, nzb, outcome):
+        """Act on a Screen verdict: remove a download that cannot be completed, otherwise only note the result."""
+        settings = self.settings
+        now = self.clock()
+        checks = subject.checks + 1
+        if nzb is None:
+            fresh = False
+        elif nzb.newest > 0:
+            fresh = now - min(nzb.newest, now) < settings.fresh_seconds
+        else:
+            fresh = True
+        anchor = min(nzb.newest, now) if nzb is not None and nzb.newest > 0 else (subject.since or now)
+        decision = decide(outcome.verdict, True, fresh, is_last(checks, subject.since, now, settings.fresh_seconds),
+                          checks)
+        outcome.fresh = fresh
+        values = {cfg.CHECKS: checks, cfg.VERDICT: "%s/%s" % (outcome.verdict, decision.action)}
+        if decision.action == FAIL:
+            try:
+                status = self.guard().verify(subject.target()).get("Status")
+            except (Refused, RpcError) as error:
+                log.warning("Completer: %s: not touched, it could not be verified (%s)" % (subject.name, error))
+                return "trouble"
+            if status not in cfg.REMOVABLE:
+                text = "would have been failed, but NZBGet is already working on it (%s): %s" % (
+                    status, outcome.describe())
+                values.update({cfg.STATE: cfg.RELEASED, cfg.INFO: log.clean(text, 300)})
+                self.say(subject, text)
+                self.record(subject, values, own=False)
+                return "too late"
+            text = "failed and removed: " + outcome.describe()
+            values[cfg.INFO] = log.clean(text, 300)
+            self.say(subject, text)
+            self._report_servers(outcome)
+            return "failed" if self.remove_as_failed(subject, values) else "trouble"
+        if decision.action == WAIT:
+            next_check = int(now + decision.delay)
+            if fresh:
+                next_check = min(next_check, int(anchor + settings.fresh_seconds + FRESH_EDGE))
+            next_check = max(next_check, int(now) + 60)
+            text = "not held; checked again in about %d minutes: %s" % (max(1, (next_check - now) // 60),
+                                                                        outcome.describe())
+            values.update({cfg.STATE: cfg.RECHECK, cfg.NEXT: next_check})
+            word = "recheck"
+        elif decision.state == cfg.PASSED:
+            text = "passed: " + outcome.describe()
+            values[cfg.STATE] = cfg.PASSED
+            word = "passed"
+        else:
+            text = "let through without a verdict: " + outcome.describe()
+            values[cfg.STATE] = cfg.RELEASED
+            word = "let through"
+        values[cfg.INFO] = log.clean(text, 300)
+        self.say(subject, text)
+        self._report_servers(outcome)
+        self.record(subject, values, own=False)
+        return word
 
     def sweep_one(self, entry):
         """One held download found by the scheduled check. Returns a word for the summary."""

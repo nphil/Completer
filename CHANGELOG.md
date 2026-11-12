@@ -8,6 +8,15 @@ All notable changes to this project are written here. The format follows
 
 ### Added
 
+- `Mode = Screen` (recommended for unattended use): new downloads are never held. The scheduled check looks at the
+  downloads still waiting their turn, front first and as many side by side as `Connections` allows (one connection
+  per server each), and removes the ones that cannot be completed before NZBGet downloads them. The queue script
+  returns at once, so NZBGet's single queue-script line is never used for a check. Downloads that NZBGet is already
+  unpacking or running a script for are never removed. Switching from `Enforce` lets go of anything still held.
+- Checks settle a gone post within the time limit: a smaller first round (40 articles), and only a spread sample of 24
+  of the articles that looked missing is asked about again (the rest only if one of those turns up). `TimeLimit`
+  default raised from 45 to 90 seconds.
+
 - The `Completer` extension for NZBGet 26 or newer (Python 3.9 or newer, standard library only, MIT licence).
 - A check before the download: for a new nzb, Completer asks the news servers with `STAT` questions whether the
   articles exist. Nothing is downloaded.

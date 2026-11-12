@@ -149,7 +149,7 @@ class OptionTests(ManifestCase):
         self.assertEqual(vars(settings.Settings(env)), vars(settings.Settings({})))
 
     def test_selects(self):
-        self.assertEqual(self.options["Mode"]["select"], ["DryRun", "Enforce", "Off"])
+        self.assertEqual(self.options["Mode"]["select"], ["Screen", "DryRun", "Enforce", "Off"])
         self.assertEqual(self.options["Verbose"]["select"], ["no", "yes"])
         for name, option in self.options.items():
             if option["select"]:
